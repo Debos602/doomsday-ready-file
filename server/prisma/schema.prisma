@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Movie {
+  id            Int      @id @default(autoincrement())
+  title         String   @unique
+  releaseYear   Int
+  runtime       Int // minutes, 1-300
+  watched       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Self-relation (implicit many-to-many): "watch these first"
+  prerequisites Movie[]  @relation("MoviePrerequisites")
+  dependents    Movie[]  @relation("MoviePrerequisites")
+}
+
+model Cinema {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  bundleSizes Int[] // distinct seat-bundle sizes, 1-10 sizes, each 1-500
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

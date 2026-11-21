@@ -1,0 +1,49 @@
+# Starts the whole app with Docker Compose on every push and checks that it works.
+name: Docker Compose
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start
+        run: docker compose up --build -d --wait --wait-timeout 300
+
+      - name: API health
+        run: curl -fsS http://localhost:4000/api/health
+
+      - name: Web app serves the page
+        run: curl -fsS http://localhost:5173/ | grep -q "<title>Doomsday Ready</title>"
+
+      - name: Web app forwards /api to the API (seeded data)
+        run: |
+          movies=$(curl -fsS http://localhost:5173/api/movies)
+          echo "$movies" | head -c 300; echo
+          test "$(echo "$movies" | jq length)" -ge 8
+          test "$(curl -fsS http://localhost:5173/api/cinemas | jq length)" -ge 1
+
+      - name: Expected results from the brief
+        run: |
+          id() { curl -fsS http://localhost:4000/api/movies | jq -r --arg t "$1" '.[] | select(.title == $t) | .id'; }
+          doomsday=$(id "Avengers: Doomsday")
+          test "$(curl -fsS http://localhost:4000/api/movies/$doomsday/rewatch-order | jq '.order | length')" -eq 7
+          status=$(curl -s -o /dev/null -w '%{http_code}' -X PATCH -H 'Content-Type: application/json' \
+            -d "{\"prerequisites\":[$(id "Avengers: Endgame")]}" http://localhost:4000/api/movies/$(id "Iron Man"))
+          test "$status" -eq 409
+          cinema=$(curl -fsS -X POST -H 'Content-Type: application/json' \
+            -d '{"name":"CI cinema","bundleSizes":[6,9,20]}' http://localhost:4000/api/cinemas | jq .id)
+          curl -fsS "http://localhost:4000/api/cinemas/$cinema/booking?groupSize=44" | tee /dev/stderr | jq -e '.totalBundles == 4'
+
+      - name: Logs
+        if: always()
+        run: docker compose logs --no-color
+
+      - name: Stop
+        if: always()
+        run: docker compose down -v
